@@ -15,6 +15,13 @@ from agentd.sandbox_runtime_executor import (
     SandboxRuntimeExecutor,
     create_sandbox_runtime_executor,
 )
+from agentd.code_execution_engine import (
+    CodeExecutionEngine,
+    ExecuteCodeRequest,
+    ExecuteCodeResult,
+    EXECUTE_CODE_TOOL,
+    create_code_execution_engine,
+)
 
 __all__ = [
     'patch_openai_with_mcp',
@@ -35,4 +42,10 @@ __all__ = [
     # OS-level sandbox (lightweight, no containers)
     'SandboxRuntimeExecutor',
     'create_sandbox_runtime_executor',
+    # Function tool-based code execution engine
+    'CodeExecutionEngine',
+    'ExecuteCodeRequest',
+    'ExecuteCodeResult',
+    'EXECUTE_CODE_TOOL',
+    'create_code_execution_engine',
 ]
