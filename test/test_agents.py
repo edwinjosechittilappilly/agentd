@@ -314,7 +314,8 @@ def test_execute_code_tool_no_skills_setup_without_servers(tmp_path):
     from agentd.code_execution_engine import CodeExecutionEngine
     engine = CodeExecutionEngine(cwd=str(engine_cwd))
     with patch("agentd.ptc.setup_skills_directory", new=AsyncMock()) as mock_setup:
-        with patch("agentd.ptc.SCHEMA_REGISTRY", {}):
+        # Patch the module where SCHEMA_REGISTRY is actually read inside _ensure_skills_ready
+        with patch("agentd.tool_decorator.SCHEMA_REGISTRY", {}):
             tool = _build_execute_code_tool(engine, mcp_servers=None, skills_dir=None)
             args = json.dumps({"code": "print('hi')", "language": "python"})
             asyncio.run(tool.on_invoke_tool(None, args))
@@ -329,7 +330,7 @@ def test_execute_code_tool_pythonpath_passed_for_python(tmp_path):
     skills = tmp_path / "skills"
     skills.mkdir()
     tool = _build_execute_code_tool(engine, mcp_servers=None, skills_dir=skills)
-    with patch("agentd.ptc.SCHEMA_REGISTRY", {}):
+    with patch("agentd.tool_decorator.SCHEMA_REGISTRY", {}):
         args = json.dumps({"code": "print(1)", "language": "python"})
         asyncio.run(tool.on_invoke_tool(None, args))
     mock_exec.execute_python.assert_called_once()
@@ -346,7 +347,7 @@ def test_execute_code_tool_no_pythonpath_for_bash(tmp_path):
     skills = tmp_path / "skills"
     skills.mkdir()
     tool = _build_execute_code_tool(engine, mcp_servers=None, skills_dir=skills)
-    with patch("agentd.ptc.SCHEMA_REGISTRY", {}):
+    with patch("agentd.tool_decorator.SCHEMA_REGISTRY", {}):
         args = json.dumps({"code": "echo hi", "language": "bash"})
         asyncio.run(tool.on_invoke_tool(None, args))
     mock_exec.execute_bash.assert_called_once()
