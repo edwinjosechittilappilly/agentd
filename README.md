@@ -288,6 +288,126 @@ executor.close()
 
 ---
 
+## OpenAI Agents SDK Integration
+
+`agentd.agents` provides `create_ptc_agent` — a factory that returns an `agents.Agent`
+pre-configured with an `execute_code` tool, full skills support, and MCP server wiring,
+without requiring the PTC guidance prompt.
+
+### Quick Start
+
+```python
+from agentd.agents import create_ptc_agent, AgentRunner
+
+agent = create_ptc_agent(
+    name="Assistant",
+    instructions="You are a helpful assistant.",
+)
+result = AgentRunner.run_sync(agent, "Write a Python function that calculates factorial(10).")
+print(result.final_output)
+```
+
+### With MCP Servers and @tool Functions
+
+The agent automatically sets up the `skills/` directory, starts the MCP bridge, and wires
+`PYTHONPATH` so `from lib.tools import ...` works inside executed code.
+
+```python
+from agents.mcp.server import MCPServerStdio
+from agentd import tool
+from agentd.agents import create_ptc_agent, AgentRunner
+
+@tool
+def greet(name: str) -> str:
+    """Return a greeting."""
+    return f"Hello, {name}!"
+
+fs_server = MCPServerStdio(params={
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/"]
+})
+
+agent = create_ptc_agent(
+    name="SkillsAgent",
+    instructions="You are a helpful agent with filesystem tools.",
+    mcp_servers=[fs_server],
+)
+result = AgentRunner.run_sync(agent, "List /tmp files using the available tools.")
+print(result.final_output)
+# Inside execute_code, the agent can now use:
+#   from lib.tools import list_directory  ← works via PYTHONPATH
+#   skills list                           ← works via bash execute_code
+```
+
+### With Microsandbox + Anthropic Claude Sonnet
+
+Run code in hardware-isolated microVMs, query skills, and use Anthropic's Claude as the
+reasoning model. This example asks the agent to discover available tools, then write and
+verify a recursive factorial function.
+
+**Prerequisites:**
+```bash
+# 1. Start the microsandbox server (requires KVM on Linux or Apple Silicon on macOS)
+msb server start --dev
+
+# 2. Set your Anthropic API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+```python
+import os
+from agents.mcp.server import MCPServerStdio
+from agentd import create_microsandbox_cli_executor
+from agentd.agents import create_ptc_agent, AgentRunner
+
+# Create a microsandbox executor (hardware-isolated microVM)
+executor = create_microsandbox_cli_executor(
+    conversation_id="factorial_session",
+    image="python",
+    memory=512,
+    timeout=30,
+)
+
+# MCP filesystem server so the agent can read/write /tmp
+fs_server = MCPServerStdio(params={
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/"],
+})
+
+agent = create_ptc_agent(
+    name="RecursionAgent",
+    instructions="You are a Python expert. Use execute_code to write and test all code.",
+    executor=executor,
+    mcp_servers=[fs_server],
+    model="claude-sonnet-4-6",  # Anthropic model; uses ANTHROPIC_API_KEY
+)
+
+result = AgentRunner.run_sync(
+    agent,
+    "First run 'skills list' to discover available tools. "
+    "Then write a Python function that computes factorial(n) using recursion, "
+    "and test it for n = 0 through 10. Print each result.",
+)
+print(result.final_output)
+
+executor.close()
+```
+
+**What the agent does:**
+
+1. Calls `execute_code` (bash) → `skills list` to discover MCP tools and local functions
+2. Calls `execute_code` (Python) to write the recursive factorial function inside the microVM
+3. Calls `execute_code` (Python) to test `factorial(n)` for each value of `n`
+4. Reports the verified output
+
+**Features used:**
+- `executor=executor` — all code runs inside hardware-isolated microVMs
+- `mcp_servers=[fs_server]` — filesystem tools wired via `lib.tools`
+- `model="claude-sonnet-4-6"` — Anthropic Claude Sonnet as the reasoning model
+- Skills discovery via `skills list` (bash) and `from lib.tools import ...` (Python)
+
+---
+
 ## Traditional Tool Calling
 
 For cases where you want standard JSON `tool_calls` instead of code fences.
@@ -475,6 +595,11 @@ See [`examples/`](./examples/):
 - `ptc_with_tools.py` - PTC with @tool decorator
 - `ptc_microsandbox.py` - PTC with microsandbox isolation (microVM)
 - `ptc_sandbox_runtime.py` - PTC with sandbox-runtime isolation (OS-level)
+
+**Agents SDK examples** (see [OpenAI Agents SDK Integration](#openai-agents-sdk-integration) above):
+- Quick start: `create_ptc_agent` with default subprocess executor
+- Skills + MCP: `create_ptc_agent` with `mcp_servers` and `@tool` functions
+- Microsandbox + Anthropic: `create_ptc_agent` with microsandbox executor and Claude Sonnet
 
 See [`config/`](./config/) for agent daemon configs.
 
