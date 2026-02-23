@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from agentd.agents import (
     AgentRunner,
     DEFAULT_CODE_EXECUTION_INSTRUCTIONS,
+    SKILLS_CODE_EXECUTION_INSTRUCTIONS,
     _build_execute_code_tool,
     create_ptc_agent,
 )
@@ -27,6 +28,23 @@ def test_default_instructions_is_non_empty_string():
 
 def test_default_instructions_mentions_execute_code():
     assert "execute_code" in DEFAULT_CODE_EXECUTION_INSTRUCTIONS
+
+
+# =============================================================================
+# SKILLS_CODE_EXECUTION_INSTRUCTIONS
+# =============================================================================
+
+def test_skills_instructions_is_non_empty_string():
+    assert isinstance(SKILLS_CODE_EXECUTION_INSTRUCTIONS, str)
+    assert len(SKILLS_CODE_EXECUTION_INSTRUCTIONS.strip()) > 0
+
+
+def test_skills_instructions_mentions_skills_list():
+    assert "skills list" in SKILLS_CODE_EXECUTION_INSTRUCTIONS
+
+
+def test_skills_instructions_mentions_lib_tools():
+    assert "lib.tools" in SKILLS_CODE_EXECUTION_INSTRUCTIONS
 
 
 # =============================================================================
@@ -251,3 +269,117 @@ def test_package_exports():
     assert hasattr(agentd, "create_ptc_agent")
     assert hasattr(agentd, "AgentRunner")
     assert hasattr(agentd, "DEFAULT_CODE_EXECUTION_INSTRUCTIONS")
+    assert hasattr(agentd, "SKILLS_CODE_EXECUTION_INSTRUCTIONS")
+
+
+# =============================================================================
+# create_ptc_agent – mcp_servers parameter
+# =============================================================================
+
+def test_create_ptc_agent_accepts_mcp_servers_none(tmp_path):
+    agent = create_ptc_agent(name="T", mcp_servers=None, cwd=str(tmp_path))
+    assert agent.name == "T"
+
+
+def test_create_ptc_agent_with_mcp_servers_uses_skills_instructions(tmp_path):
+    mock_server = MagicMock()
+    agent = create_ptc_agent(
+        name="T",
+        instructions="You are helpful.",
+        mcp_servers=[mock_server],
+        cwd=str(tmp_path),
+    )
+    assert "lib.tools" in agent.instructions
+    assert "You are helpful." in agent.instructions
+
+
+def test_create_ptc_agent_without_mcp_servers_uses_default_instructions(tmp_path):
+    agent = create_ptc_agent(name="T", cwd=str(tmp_path))
+    assert "execute_code" in agent.instructions
+
+
+def test_create_ptc_agent_accepts_skills_dir(tmp_path):
+    custom_skills = tmp_path / "my_skills"
+    agent = create_ptc_agent(name="T", skills_dir=str(custom_skills), cwd=str(tmp_path))
+    assert agent.name == "T"
+
+
+# =============================================================================
+# Skills setup – lazy initialization
+# =============================================================================
+
+def test_execute_code_tool_no_skills_setup_without_servers(tmp_path):
+    engine_cwd = tmp_path / "workspace"
+    engine_cwd.mkdir()
+    from agentd.code_execution_engine import CodeExecutionEngine
+    engine = CodeExecutionEngine(cwd=str(engine_cwd))
+    with patch("agentd.ptc.setup_skills_directory", new=AsyncMock()) as mock_setup:
+        with patch("agentd.ptc.SCHEMA_REGISTRY", {}):
+            tool = _build_execute_code_tool(engine, mcp_servers=None, skills_dir=None)
+            args = json.dumps({"code": "print('hi')", "language": "python"})
+            asyncio.run(tool.on_invoke_tool(None, args))
+            mock_setup.assert_not_called()
+
+
+def test_execute_code_tool_pythonpath_passed_for_python(tmp_path):
+    from agentd.code_execution_engine import CodeExecutionEngine
+    mock_exec = MagicMock()
+    mock_exec.execute_python.return_value = ("ok", 0)
+    engine = CodeExecutionEngine(executor=mock_exec, cwd=str(tmp_path))
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    tool = _build_execute_code_tool(engine, mcp_servers=None, skills_dir=skills)
+    with patch("agentd.ptc.SCHEMA_REGISTRY", {}):
+        args = json.dumps({"code": "print(1)", "language": "python"})
+        asyncio.run(tool.on_invoke_tool(None, args))
+    mock_exec.execute_python.assert_called_once()
+    call_kwargs = mock_exec.execute_python.call_args
+    # pythonpath is passed as a keyword argument
+    assert call_kwargs[1].get("pythonpath") == skills
+
+
+def test_execute_code_tool_no_pythonpath_for_bash(tmp_path):
+    from agentd.code_execution_engine import CodeExecutionEngine
+    mock_exec = MagicMock()
+    mock_exec.execute_bash.return_value = ("ok", 0)
+    engine = CodeExecutionEngine(executor=mock_exec, cwd=str(tmp_path))
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    tool = _build_execute_code_tool(engine, mcp_servers=None, skills_dir=skills)
+    with patch("agentd.ptc.SCHEMA_REGISTRY", {}):
+        args = json.dumps({"code": "echo hi", "language": "bash"})
+        asyncio.run(tool.on_invoke_tool(None, args))
+    mock_exec.execute_bash.assert_called_once()
+
+
+# =============================================================================
+# CodeExecutionEngine – pythonpath parameter
+# =============================================================================
+
+def test_engine_execute_code_passes_pythonpath(tmp_path):
+    from agentd.code_execution_engine import CodeExecutionEngine
+    mock_exec = MagicMock()
+    mock_exec.execute_python.return_value = ("42", 0)
+    engine = CodeExecutionEngine(executor=mock_exec, cwd=str(tmp_path))
+    pythonpath = tmp_path / "skills"
+    engine.execute_code(code="print(42)", language="python", pythonpath=pythonpath)
+    mock_exec.execute_python.assert_called_once_with(
+        "print(42)", engine.cwd, pythonpath=pythonpath
+    )
+
+
+def test_engine_execute_code_bash_ignores_pythonpath(tmp_path):
+    from agentd.code_execution_engine import CodeExecutionEngine
+    mock_exec = MagicMock()
+    mock_exec.execute_bash.return_value = ("ok", 0)
+    engine = CodeExecutionEngine(executor=mock_exec, cwd=str(tmp_path))
+    pythonpath = tmp_path / "skills"
+    engine.execute_code(code="echo hi", language="bash", pythonpath=pythonpath)
+    mock_exec.execute_bash.assert_called_once()
+    mock_exec.execute_python.assert_not_called()
+
+
+def test_execute_code_request_has_pythonpath_field():
+    from agentd.code_execution_engine import ExecuteCodeRequest
+    req = ExecuteCodeRequest(code="pass", pythonpath=Path("/tmp/skills"))
+    assert req.pythonpath == Path("/tmp/skills")

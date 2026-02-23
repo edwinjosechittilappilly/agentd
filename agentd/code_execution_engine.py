@@ -110,6 +110,7 @@ class ExecuteCodeRequest:
     language: str = "python"
     command: str | None = None
     tool_call_id: str | None = None
+    pythonpath: "Path | None" = None
 
 
 @dataclass
@@ -248,6 +249,7 @@ class CodeExecutionEngine:
         code: str,
         language: str | None = None,
         command: str | None = None,
+        pythonpath: "Path | None" = None,
     ) -> ExecuteCodeResult:
         """
         Execute a single piece of code synchronously.
@@ -259,6 +261,9 @@ class CodeExecutionEngine:
             command: Optional shell command that overrides the language runner.
                 Use ``{file}`` as a placeholder for the written temp-file path
                 (e.g. ``'node {file}'``, ``'ruby {file}'``).
+            pythonpath: Optional path added to ``PYTHONPATH`` when running
+                Python code.  Used to expose a ``skills/lib`` directory so
+                ``from lib.tools import ...`` imports work.
 
         Returns:
             :class:`ExecuteCodeResult` with ``output``, ``exit_code``, and
@@ -271,7 +276,7 @@ class CodeExecutionEngine:
             elif lang in ("bash", "shell", "sh"):
                 output, exit_code = self.executor.execute_bash(code, self.cwd)
             elif lang in ("python", "py"):
-                output, exit_code = self.executor.execute_python(code, self.cwd)
+                output, exit_code = self.executor.execute_python(code, self.cwd, pythonpath=pythonpath)
             else:
                 output, exit_code = self._run_language(code, lang)
         except Exception as exc:
@@ -325,6 +330,7 @@ class CodeExecutionEngine:
                 code=req.code,
                 language=req.language,
                 command=req.command,
+                pythonpath=req.pythonpath,
             )
             result.tool_call_id = req.tool_call_id
             results.append(result)
@@ -396,12 +402,12 @@ class CodeExecutionEngine:
             elif lang in ("python", "py"):
                 if hasattr(self.executor, "execute_python_async"):
                     output, exit_code = await self.executor.execute_python_async(
-                        req.code, self.cwd
+                        req.code, self.cwd, pythonpath=req.pythonpath
                     )
                 else:
                     output, exit_code = await asyncio.get_event_loop().run_in_executor(
                         None,
-                        functools.partial(self.executor.execute_python, req.code, self.cwd),
+                        functools.partial(self.executor.execute_python, req.code, self.cwd, pythonpath=req.pythonpath),
                     )
             else:
                 output, exit_code = await asyncio.get_event_loop().run_in_executor(

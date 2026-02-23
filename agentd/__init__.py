@@ -26,6 +26,7 @@ from agentd.agents import (
     create_ptc_agent,
     AgentRunner,
     DEFAULT_CODE_EXECUTION_INSTRUCTIONS,
+    SKILLS_CODE_EXECUTION_INSTRUCTIONS,
 )
 
 __all__ = [
@@ -57,4 +58,5 @@ __all__ = [
     'create_ptc_agent',
     'AgentRunner',
     'DEFAULT_CODE_EXECUTION_INSTRUCTIONS',
+    'SKILLS_CODE_EXECUTION_INSTRUCTIONS',
 ]
