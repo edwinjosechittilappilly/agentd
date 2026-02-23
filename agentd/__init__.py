@@ -22,6 +22,11 @@ from agentd.code_execution_engine import (
     EXECUTE_CODE_TOOL,
     create_code_execution_engine,
 )
+from agentd.agents import (
+    create_ptc_agent,
+    AgentRunner,
+    DEFAULT_CODE_EXECUTION_INSTRUCTIONS,
+)
 
 __all__ = [
     'patch_openai_with_mcp',
@@ -48,4 +53,8 @@ __all__ = [
     'ExecuteCodeResult',
     'EXECUTE_CODE_TOOL',
     'create_code_execution_engine',
+    # Agents SDK integration
+    'create_ptc_agent',
+    'AgentRunner',
+    'DEFAULT_CODE_EXECUTION_INSTRUCTIONS',
 ]
